@@ -1,0 +1,9 @@
+Debug/
+Release/
+*.aps
+*.suo
+*.user
+*.thumb
+*.ncb
+BMLauncher/Debug/
+BMLauncher/Release/
