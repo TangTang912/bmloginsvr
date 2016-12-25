@@ -827,6 +827,7 @@ bool CSIBHelperDlg::PackLuaEx(const char* _pszPath, const char* _pszPsw /* = NUL
 	//	pack server files
 	char szServerPath[MAX_PATH];
 	char szClientPath[MAX_PATH];
+	char szCommonPath[MAX_PATH];
 	char szWorkingPath[MAX_PATH];
 	char szSrcFilePath[MAX_PATH];
 	char szDestFilePath[MAX_PATH];
@@ -842,6 +843,7 @@ bool CSIBHelperDlg::PackLuaEx(const char* _pszPath, const char* _pszPsw /* = NUL
 	}
 	sprintf(szServerPath, "%s/server", _pszPath);
 	sprintf(szClientPath, "%s/client", _pszPath);
+	sprintf(szCommonPath, "%s/common", _pszPath);
 
 	sprintf(szWorkingPath, "%s/temp", _pszPath);
 	if(PathFileExists(szWorkingPath))
@@ -863,6 +865,12 @@ bool CSIBHelperDlg::PackLuaEx(const char* _pszPath, const char* _pszPsw /* = NUL
 	{
 		mkdir(szClientWorkingPath);
 	}
+	char szCommonWorkingPath[MAX_PATH];
+	sprintf(szCommonWorkingPath, "%s/common", szWorkingPath);
+	if(!PathFileExists(szCommonWorkingPath))
+	{
+		mkdir(szCommonWorkingPath);
+	}
 
 	BOOL bNeedEncrypt = FALSE;
 	if(_pszPsw != NULL)
@@ -876,6 +884,7 @@ bool CSIBHelperDlg::PackLuaEx(const char* _pszPath, const char* _pszPsw /* = NUL
 
 	int nServerPackedCount = 0;
 	int nClientPackedCount = 0;
+	int nCommonPackedCount = 0;
 	DWORD dwPackBeginTime = GetTickCount();
 	FolderFilenameList xNames;
 	std::string xSubPath = "";
@@ -950,6 +959,92 @@ bool CSIBHelperDlg::PackLuaEx(const char* _pszPath, const char* _pszPsw /* = NUL
 		{
 			AfxMessageBox("Can't execute luac.exe...");
 		}
+
+		// and pack bjt
+		sprintf(szSrcFilePath, "%s/%s/%s", szClientPath, refInfo.xSubPath.c_str(), refInfo.xFilename.c_str());
+		strcpy(szFileName, refInfo.xFilename.c_str());
+		PathRemoveExtension(szFileName);
+		sprintf(szDestFilePath, "%s/%s/%s.bjt", szClientWorkingPath, refInfo.xSubPath.c_str(), szFileName);
+		sprintf(szCmd, "luajit.exe -b %s %s", szSrcFilePath, szDestFilePath);
+
+		bRet = CreateProcess(NULL, szCmd, NULL, NULL, FALSE, NORMAL_PRIORITY_CLASS, NULL, NULL, &si, &pi);
+		if(TRUE == bRet)
+		{
+			WaitForSingleObject(pi.hThread, INFINITE);
+			CloseHandle(pi.hThread);
+			CloseHandle(pi.hProcess);
+			++nClientPackedCount;
+		}
+		else
+		{
+			AfxMessageBox("Can't execute luac.exe...");
+		}
+
+		if(_bEncryptBjt)
+		{
+			//DataEncryptor::DoEncryptFile(szDestFilePath);
+			DataEncryptor::EncryptFileXXTea(szDestFilePath);
+		}
+	}
+
+	//	生成所有共享二进制脚本
+	xNames.clear();
+	dfsFolder(szCommonPath, xSubPath, xNames, ".lua");
+
+	begIter = xNames.begin();
+	for(begIter;
+		begIter != xNames.end();
+		++begIter)
+	{
+		const FolderFileInfo& refInfo = *begIter;
+		CreateAllPath(szCommonWorkingPath, refInfo.xSubPath.c_str());
+
+		sprintf(szSrcFilePath, "%s/%s/%s", szCommonPath, refInfo.xSubPath.c_str(), refInfo.xFilename.c_str());
+		char szFileName[100];
+		strcpy(szFileName, refInfo.xFilename.c_str());
+		PathRemoveExtension(szFileName);
+		sprintf(szDestFilePath, "%s/%s/%s.bbt", szCommonWorkingPath, refInfo.xSubPath.c_str(), szFileName);
+		sprintf(szCmd, "luac.exe -o %s %s", szDestFilePath, szSrcFilePath);
+		//AfxMessageBox(szCmd);
+
+		BOOL bRet = CreateProcess(NULL, szCmd, NULL, NULL, FALSE, NORMAL_PRIORITY_CLASS, NULL, NULL, &si, &pi);
+		if(TRUE == bRet)
+		{
+			WaitForSingleObject(pi.hThread, INFINITE);
+			CloseHandle(pi.hThread);
+			CloseHandle(pi.hProcess);
+			++nCommonPackedCount;
+		}
+		else
+		{
+			AfxMessageBox("Can't execute luac.exe...");
+		}
+
+		// and pack bjt
+		sprintf(szSrcFilePath, "%s/%s/%s", szCommonPath, refInfo.xSubPath.c_str(), refInfo.xFilename.c_str());
+		strcpy(szFileName, refInfo.xFilename.c_str());
+		PathRemoveExtension(szFileName);
+		sprintf(szDestFilePath, "%s/%s/%s.bjt", szCommonWorkingPath, refInfo.xSubPath.c_str(), szFileName);
+		sprintf(szCmd, "luajit.exe -b %s %s", szSrcFilePath, szDestFilePath);
+
+		bRet = CreateProcess(NULL, szCmd, NULL, NULL, FALSE, NORMAL_PRIORITY_CLASS, NULL, NULL, &si, &pi);
+		if(TRUE == bRet)
+		{
+			WaitForSingleObject(pi.hThread, INFINITE);
+			CloseHandle(pi.hThread);
+			CloseHandle(pi.hProcess);
+			++nCommonPackedCount;
+		}
+		else
+		{
+			AfxMessageBox("Can't execute luac.exe...");
+		}
+
+		if(_bEncryptBjt)
+		{
+			//DataEncryptor::DoEncryptFile(szDestFilePath);
+			DataEncryptor::EncryptFileXXTea(szDestFilePath);
+		}
 	}
 
 	//	zip all server files
@@ -979,7 +1074,7 @@ bool CSIBHelperDlg::PackLuaEx(const char* _pszPath, const char* _pszPsw /* = NUL
 		}
 	}
 
-	sprintf(szCmd, "打包服务器脚本[%d]个 客户端脚本[%d]个 执行时间[%d]秒", nServerPackedCount, nClientPackedCount, (GetTickCount() - dwPackBeginTime) / 1000);
+	sprintf(szCmd, "打包服务器脚本[%d]个 客户端脚本[%d]个 共享脚本[%d]个 执行时间[%d]秒", nServerPackedCount, nClientPackedCount, nCommonPackedCount, (GetTickCount() - dwPackBeginTime) / 1000);
 	AfxMessageBox(szCmd);
 	
 	return true;
